@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useBlog } from '../context/BlogContext';
 import { useToast } from '../components/Toast';
+import { calculateReadTime } from '../utils/readTime';
 
 const CATEGORIES = ['Technology', 'Writing', 'Travel', 'Lifestyle', 'Business', 'Health', 'Science', 'Arts', 'Other'];
 
@@ -17,6 +20,7 @@ export default function PostForm() {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  const [editorTab, setEditorTab] = useState('write');
 
   useEffect(() => {
     if (isEdit) {
@@ -49,17 +53,18 @@ export default function PostForm() {
     if (errors[key]) setErrors(p => ({ ...p, [key]: '' }));
   };
 
+  const parsedTags = form.tags
+    .split(',')
+    .map(t => t.trim().toLowerCase())
+    .filter(Boolean);
+  const uniqueTags = [...new Set(parsedTags)];
+
   const handleSubmit = async () => {
     const e = validate();
     if (Object.keys(e).length > 0) { setErrors(e); return; }
     setSaving(true);
 
-    const tagList = form.tags
-      .split(',')
-      .map(t => t.trim())
-      .filter(Boolean);
-
-    const data = { ...form, tags: tagList };
+    const data = { ...form, tags: uniqueTags };
 
     setTimeout(() => {
       if (isEdit) {
@@ -86,6 +91,21 @@ export default function PostForm() {
       </div>
 
       <div className="form-group">
+        <label className="form-label">Cover image URL</label>
+        <input className="form-input" placeholder="https://images.unsplash.com/..." value={form.cover} onChange={set('cover')} />
+        <div className="form-hint">Optional. Paste any direct image URL.</div>
+        {form.cover && (
+          <img
+            src={form.cover}
+            alt="Cover preview"
+            className="form-cover-preview"
+            onError={e => { e.target.style.display = 'none'; }}
+            onLoad={e => { e.target.style.display = 'block'; }}
+          />
+        )}
+      </div>
+
+      <div className="form-group">
         <label className="form-label">Excerpt *</label>
         <input className="form-input" placeholder="A short summary shown on the card..." value={form.excerpt} onChange={set('excerpt')} />
         {errors.excerpt && <div className="form-error">{errors.excerpt}</div>}
@@ -106,43 +126,66 @@ export default function PostForm() {
       </div>
 
       <div className="form-group">
-        <label className="form-label">Tags</label>
-        <input className="form-input" placeholder="React, JavaScript, Frontend" value={form.tags} onChange={set('tags')} />
-        <div className="form-hint">Comma-separated. Up to 5 tags recommended.</div>
-      </div>
+        <label className="form-label">Content * <span style={{ fontWeight: 400, color: 'var(--text-light)' }}>— Markdown supported</span></label>
 
-      <div className="form-group">
-        <label className="form-label">Cover image URL</label>
-        <input className="form-input" placeholder="https://images.unsplash.com/..." value={form.cover} onChange={set('cover')} />
-        <div className="form-hint">Optional. Paste any direct image URL.</div>
-        {form.cover && (
-          <img
-            src={form.cover}
-            alt="Cover preview"
-            style={{ marginTop: 10, maxHeight: 180, borderRadius: 8, objectFit: 'cover', width: '100%' }}
-            onError={e => { e.target.style.display = 'none'; }}
-          />
-        )}
-      </div>
+        <div className="split-editor">
+          <div className="split-tabs">
+            <button
+              className={`split-tab ${editorTab === 'write' ? 'active' : ''}`}
+              onClick={() => setEditorTab('write')}
+            >
+              Write
+            </button>
+            <button
+              className={`split-tab ${editorTab === 'preview' ? 'active' : ''}`}
+              onClick={() => setEditorTab('preview')}
+            >
+              Preview
+            </button>
+          </div>
 
-      <div className="form-group">
-        <label className="form-label">Content *</label>
-        <textarea
-          className="form-textarea"
-          placeholder="Write your post here... Use **bold text** for emphasis."
-          value={form.content}
-          onChange={set('content')}
-        />
+          <div className="split-panes">
+            <div className={`split-pane split-pane-write ${editorTab === 'write' ? 'active' : ''}`}>
+              <textarea
+                className="form-textarea split-textarea"
+                placeholder="Write your post in Markdown..."
+                value={form.content}
+                onChange={set('content')}
+              />
+            </div>
+            <div className={`split-pane split-pane-preview ${editorTab === 'preview' ? 'active' : ''}`}>
+              <div className="prose">
+                {form.content ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{form.content}</ReactMarkdown>
+                ) : (
+                  <p style={{ color: 'var(--text-light)' }}>Preview will appear here...</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {errors.content && <div className="form-error">{errors.content}</div>}
         <div className="form-hint">
-          {form.content.split(' ').filter(Boolean).length} words · ~{Math.max(1, Math.ceil(form.content.split(' ').filter(Boolean).length / 200))} min read
+          {form.content.split(' ').filter(Boolean).length} words · {calculateReadTime(form.content)}
         </div>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Tags (comma separated)</label>
+        <input className="form-input" placeholder="react, javascript, frontend" value={form.tags} onChange={set('tags')} />
+        <div className="form-hint">Up to 5 tags recommended.</div>
+        {uniqueTags.length > 0 && (
+          <div className="tags" style={{ marginTop: 8 }}>
+            {uniqueTags.map(t => <span key={t} className="tag">{t}</span>)}
+          </div>
+        )}
       </div>
 
       <div className="form-actions">
         <button className="btn btn-ghost" onClick={() => navigate(-1)}>Cancel</button>
         <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
-          {saving ? '⏳ Saving...' : isEdit ? '💾 Save changes' : '🚀 Publish'}
+          {saving ? 'Saving...' : isEdit ? 'Save changes' : 'Publish'}
         </button>
       </div>
     </div>
